@@ -1,0 +1,49 @@
+name: Build RPK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find project (unpack zip if needed)
+        run: |
+          if [ -f package.json ] && [ -f src/manifest.json ]; then
+            echo "PROJECT_DIR=." >> "$GITHUB_ENV"
+          else
+            mkdir -p _unz
+            for z in *.zip; do unzip -oq "$z" -d _unz; done
+            m=$(find _unz -path '*/src/manifest.json' | awk '{print length, $0}' | sort -n | head -1 | cut -d' ' -f2-)
+            if [ -z "$m" ]; then echo "src/manifest.json not found"; exit 1; fi
+            proj=$(dirname "$(dirname "$m")")
+            echo "Project dir: $proj"
+            echo "PROJECT_DIR=$proj" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: npm install --no-audit --no-fund
+
+      - name: Build .rpk
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: npm run build
+
+      - name: List build output
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: ls -laR dist
+
+      - name: Upload .rpk
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpk
+          path: ${{ env.PROJECT_DIR }}/dist/*.rpk
+          if-no-files-found: error
